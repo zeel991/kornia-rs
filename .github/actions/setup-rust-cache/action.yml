@@ -40,6 +40,7 @@ runs:
         echo "SCCACHE_ERROR_LOG=/tmp/sccache_log.txt" >> $GITHUB_ENV
         echo "SCCACHE_LOG=info" >> $GITHUB_ENV
         echo "SCCACHE_GHA_MAX_FILE_SIZE=20971520" >> $GITHUB_ENV
+        echo "SCCACHE_IDLE_TIMEOUT=3600" >> $GITHUB_ENV
 
     - name: Install sccache
       if: inputs.with-sccache == 'true'
