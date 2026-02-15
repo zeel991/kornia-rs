@@ -57,3 +57,9 @@ jobs:
       - name: Show sccache stats
         if: matrix.needs-sccache
         run: sccache --show-stats
+        continue-on-error: true
+
+      - name: Post job cleanup
+        if: matrix.needs-sccache
+        run: sccache --stop-server || true
+        continue-on-error: true

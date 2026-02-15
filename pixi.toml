@@ -29,7 +29,6 @@ py314t = { features = ["rust", "py314t"] }
 
 [feature.rust.dependencies]
 rust = ">=1.76"
-sccache = "*"
 openssl = "*"
 pkg-config = "*"
 libprotobuf = "*"  # Provides protoc compiler
