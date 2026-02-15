@@ -57,6 +57,8 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/setup-rust-cache
+        with:
+          with-sccache: "false"
 
       - uses: prefix-dev/setup-pixi@v0.8.1
         with:
@@ -71,13 +73,3 @@ jobs:
       - name: Run multithreaded tests
         if: ${{ matrix.threaded }}
         run: pixi run -e ${{ matrix.pixi-env }} py-test-threaded
-
-      - name: Show sccache stats
-        if: success() || failure()
-        run: sccache --show-stats || true
-        continue-on-error: true
-
-      - name: Post job cleanup
-        if: success() || failure()
-        run: sccache --stop-server || true
-        continue-on-error: true
