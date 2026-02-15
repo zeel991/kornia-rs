@@ -36,10 +36,16 @@ runs:
       run: |
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
         echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-        echo "SCCACHE_CACHE_SIZE=6G" >> $GITHUB_ENV
+        echo "SCCACHE_CACHE_SIZE=10G" >> $GITHUB_ENV
         echo "SCCACHE_ERROR_LOG=/tmp/sccache_log.txt" >> $GITHUB_ENV
         echo "SCCACHE_LOG=info" >> $GITHUB_ENV
+        echo "SCCACHE_GHA_MAX_FILE_SIZE=20971520" >> $GITHUB_ENV
 
     - name: Install sccache
       if: inputs.with-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
+
+    - name: Stop sccache server
+      if: inputs.with-sccache == 'true'
+      shell: bash
+      run: sccache --stop-server || true

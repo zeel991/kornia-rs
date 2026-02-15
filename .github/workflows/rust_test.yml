@@ -33,12 +33,15 @@ jobs:
           - name: Test Debug - x86_64
             runner: ubuntu-latest
             command: rust-test
+            needs-sccache: true
           - name: Test Release - x86_64
             runner: ubuntu-latest
             command: rust-test-release
+            needs-sccache: true
           - name: Test Debug - aarch64
             runner: ubuntu-24.04-arm
             command: rust-test
+            needs-sccache: true
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +49,8 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/setup-rust-cache
+        with:
+          with-sccache: ${{ matrix.needs-sccache }}
 
       - uses: prefix-dev/setup-pixi@v0.8.1
         with:
@@ -56,4 +61,5 @@ jobs:
         run: pixi run ${{ matrix.command }}
 
       - name: Show sccache stats
+        if: matrix.needs-sccache
         run: sccache --show-stats
