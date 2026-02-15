@@ -75,3 +75,9 @@ jobs:
       - name: Show sccache stats
         if: success() || failure()
         run: sccache --show-stats || true
+        continue-on-error: true
+
+      - name: Post job cleanup
+        if: success() || failure()
+        run: sccache --stop-server || true
+        continue-on-error: true

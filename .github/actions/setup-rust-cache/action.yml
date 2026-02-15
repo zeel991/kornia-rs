@@ -44,8 +44,3 @@ runs:
     - name: Install sccache
       if: inputs.with-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
-
-    - name: Stop sccache server
-      if: inputs.with-sccache == 'true'
-      shell: bash
-      run: sccache --stop-server || true
