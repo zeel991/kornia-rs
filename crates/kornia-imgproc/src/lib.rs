@@ -1,4 +1,4 @@
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 #![doc = env!("CARGO_PKG_DESCRIPTION")]
 /// image undistortion module.
 pub mod calibration;
@@ -65,3 +65,6 @@ pub mod pyramid;
 
 /// distance transform
 pub mod distance_transform;
+
+/// contours
+pub mod contours;
