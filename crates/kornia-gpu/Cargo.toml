@@ -1,0 +1,35 @@
+[package]
+name = "kornia-gpu"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+description = "GPU-accelerated image processing kernels for kornia-rs (CubeCL backend)"
+homepage = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[dependencies]
+kornia-tensor = { workspace = true }
+kornia-image = { workspace = true }
+cubecl = { workspace = true }
+bytemuck = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+kornia-imgproc = { workspace = true }
+kornia-io = { workspace = true }
+
+[[bench]]
+name = "bench_gpu"
+harness = false
+
+[[example]]
+name = "bev_compare"
+path = "examples/bev_compare.rs"
+
+[[example]]
+name = "bev_node"
+path = "examples/bev_node.rs"
