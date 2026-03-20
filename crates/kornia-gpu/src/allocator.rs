@@ -2,29 +2,27 @@
 //!
 //! # Design
 //!
-//! kornia-tensor's `TensorAllocator` trait returns `*mut u8` — a host pointer:
+//! kornia-tensor's TensorAllocator trait returns *mut u8 — a host pointer:
 //!
-//! ```rust,ignore
 //! pub trait TensorAllocator: Clone {
 //!     fn alloc(&self, layout: Layout) -> Result<*mut u8, TensorAllocatorError>;
 //!     fn dealloc(&self, ptr: *mut u8, layout: Layout);
 //! }
-//! ```
 //!
-//! GPU memory is not host-addressable, so `GpuAllocator` cannot implement this
-//! trait to actually allocate GPU memory through it. Instead, `GpuAllocator`
-//! implements `TensorAllocator` by delegating to the system allocator — this
-//! allows `Image<T, C, GpuAllocator>` to exist as a type, while actual GPU
-//! memory is managed separately through CubeCL handles stored in `GpuMemory`.
+//! GPU memory is not host-addressable, so GpuAllocator cannot implement this
+//! trait to actually allocate GPU memory through it. Instead, GpuAllocator
+//! implements TensorAllocator by delegating to the system allocator — this
+//! allows Image<T, C, GpuAllocator> to exist as a type, while actual GPU
+//! memory is managed separately through CubeCL handles stored in GpuMemory.
 //!
-//! The `to_gpu()` / `to_cpu()` transfer functions are the only points where
+//! The to_gpu() / to_cpu() transfer functions are the only points where
 //! data moves between CPU and GPU. No operation implicitly copies data.
 //!
 //! # Future integration path
 //!
-//! When kornia-tensor adds an associated storage type to `TensorAllocator`,
-//! `GpuAllocator` can hold a CubeCL handle directly in `TensorStorage`,
-//! eliminating the need for the separate `GpuMemory` wrapper.
+//! When kornia-tensor adds an associated storage type to TensorAllocator,
+//! GpuAllocator can hold a CubeCL handle directly in TensorStorage,
+//! eliminating the need for the separate GpuMemory wrapper.
 
 use std::alloc::Layout;
 use std::marker::PhantomData;
@@ -34,27 +32,20 @@ use cubecl::wgpu::WgpuRuntime;
 
 use kornia_tensor::allocator::{TensorAllocator, TensorAllocatorError};
 
-/// GPU device handle wrapping a CubeCL `ComputeClient`.
+/// GPU device handle wrapping a CubeCL ComputeClient.
 ///
-/// Clone is cheap — `ComputeClient` is Arc-based internally.
+/// Clone is cheap — ComputeClient is Arc-based internally.
 ///
-/// # Example
-///
-/// ```rust,ignore
-/// use kornia_gpu::allocator::GpuAllocator;
-///
-/// let gpu = GpuAllocator::new();
-/// ```
 #[derive(Clone)]
 pub struct GpuAllocator {
     pub(crate) client: ComputeClient<WgpuRuntime>,
 }
 
 impl GpuAllocator {
-    /// Create a `GpuAllocator` on the default wgpu device.
+    /// Create a GpuAllocator on the default wgpu device.
     ///
-    /// Uses Vulkan on Linux, Metal on macOS, DX12 on Windows.
-    /// No CUDA installation required.
+    /// Uses Vulkan on Linux, Metal on macOS, DX12 on Windows
+    /// No CUDA installation required
     pub fn new() -> Self {
         let device: <WgpuRuntime as Runtime>::Device = Default::default();
         let client = WgpuRuntime::client(&device);
@@ -73,11 +64,11 @@ impl Default for GpuAllocator {
     }
 }
 
-/// Implement `TensorAllocator` so `Image<T, C, GpuAllocator>` is a valid type.
+/// Implement TensorAllocator so Image<T, C, GpuAllocator> is a valid type.
 ///
-/// This delegates to the system allocator — the CPU-side tensor that carries
-/// `GpuAllocator` acts as a type-level marker. The actual GPU buffer is managed
-/// by `GpuMemory<T>` and accessed via the transfer API (`to_gpu` / `to_cpu`).
+/// This delegates to the system allocator - the CPU-side tensor that carries
+/// GpuAllocator acts as a type-level marker. The actual GPU buffer is managed
+/// by GpuMemory<T> and accessed via the transfer API (to_gpu / to_cpu)
 impl TensorAllocator for GpuAllocator {
     fn alloc(&self, layout: Layout) -> Result<*mut u8, TensorAllocatorError> {
         let ptr = unsafe { std::alloc::alloc(layout) };
@@ -97,11 +88,11 @@ impl TensorAllocator for GpuAllocator {
 
 /// Owned GPU buffer: a CubeCL handle + element count.
 ///
-/// This is the actual GPU-side storage. It is separate from `TensorStorage`
-/// because `TensorStorage` holds a `NonNull<T>` (host pointer) which cannot
+/// This is the actual GPU-side storage. It is separate from TensorStorage
+/// because TensorStorage holds a NonNull<T> (host pointer) which cannot
 /// represent device memory.
 ///
-/// Created by `to_gpu()`, consumed by kernels, released on drop.
+/// Created by to_gpu(), consumed by kernels, released on drop
 pub struct GpuMemory<T> {
     pub(crate) handle: cubecl::server::Handle,
     pub(crate) len: usize, // element count
@@ -110,7 +101,7 @@ pub struct GpuMemory<T> {
 }
 
 impl<T: bytemuck::Pod + Send + Sync> GpuMemory<T> {
-    /// Upload a host slice to VRAM. Returns a `GpuMemory<T>`.
+    /// Upload a host slice to VRAM. Returns a GpuMemory<T>.
     pub fn upload(data: &[T], alloc: &GpuAllocator) -> Self {
         let bytes = cubecl::bytes::Bytes::from_elems(data.to_vec());
         let handle = alloc.client.create(bytes);
@@ -122,7 +113,7 @@ impl<T: bytemuck::Pod + Send + Sync> GpuMemory<T> {
         }
     }
 
-    /// Download VRAM contents back to a `Vec<T>`.
+    /// Download VRAM contents back to a Vec<T>.
     pub fn download(&self) -> Vec<T> {
         let results = self.alloc.client.read(vec![self.handle.clone()]);
         let raw: &[u8] = results[0].as_ref();
@@ -134,14 +125,14 @@ impl<T: bytemuck::Pod + Send + Sync> GpuMemory<T> {
         self.len
     }
 
-    /// Returns `true` if there are no elements.
+    /// Returns true if there are no elements.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
-    /// Build a `TensorArg` for passing to a CubeCL kernel.
+    /// Build a TensorArg for passing to a CubeCL kernel.
     ///
-    /// `vectorization` — 1 for scalar `Tensor<f32>`, 4 for `Tensor<Line<f32>>`.
+    /// vectorization - 1 for scalar Tensor<f32>, 4 for Tensor<Line<f32>>.
     pub(crate) fn as_tensor_arg<'a>(
         &'a self,
         shape: &'a [usize],

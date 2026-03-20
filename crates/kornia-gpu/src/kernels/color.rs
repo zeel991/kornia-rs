@@ -2,7 +2,7 @@
 //!
 //! Converts an RGB image to grayscale using the standard luminance weights.
 //!
-//! CPU equivalent: `kornia_imgproc::color::gray_from_rgb`
+//! CPU equivalent: kornia_imgproc::color::gray_from_rgb
 //! (uses rayon par_iter over rows).
 //!
 //! Weights match the CPU implementation:
@@ -14,9 +14,7 @@ use cubecl::wgpu::WgpuRuntime;
 use crate::error::GpuError;
 use crate::image::GpuImage;
 
-// ---------------------------------------------------------------------------
 // CubeCL kernel
-// ---------------------------------------------------------------------------
 
 /// One thread per output pixel. Reads 3 contiguous f32 values (R, G, B),
 /// writes 1 f32 (gray) at the same spatial location.
@@ -47,32 +45,17 @@ fn gray_from_rgb_kernel(
     dst[dst_idx] = gray;
 }
 
-// ---------------------------------------------------------------------------
-// Public launch function
-// ---------------------------------------------------------------------------
-
 /// Convert an RGB GPU image to grayscale.
 ///
-/// Mirrors `kornia_imgproc::color::gray_from_rgb` but runs on the GPU.
+/// Mirrors kornia_imgproc::color::gray_from_rgb but runs on the GPU.
 ///
 /// # Arguments
 ///
-/// * `src` - Input GPU image with 3 channels (RGB, f32).
+/// * src - Input GPU image with 3 channels (RGB, f32).
 ///
 /// # Returns
 ///
-/// A new `GpuImage<f32, 1>` (single-channel grayscale).
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use kornia_gpu::{GpuAllocator, image::ImageExt, kernels::gray_from_rgb};
-///
-/// let gpu = GpuAllocator::new();
-/// let rgb = cpu_rgb.to_gpu(&gpu)?;
-/// let gray = gray_from_rgb(&rgb)?;
-/// let result = gray.to_cpu()?;
-/// ```
+/// A new GpuImage<f32, 1> (single-channel grayscale).
 pub fn gray_from_rgb(src: &GpuImage<f32, 3>) -> Result<GpuImage<f32, 1>, GpuError> {
     let alloc = src.alloc();
     let (h, w) = (src.height(), src.width());

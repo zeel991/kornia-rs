@@ -1,4 +1,4 @@
-//! BEV warp comparison: Rust GPU output vs OpenCV reference.
+//! BEV warp comparison: Rust GPU output vs OpenCV reference
 //!
 //! Usage:
 //!   cargo run --release --example bev_compare -- input.jpg

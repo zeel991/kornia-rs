@@ -21,6 +21,10 @@ pub enum GpuError {
     #[error("Singular homography matrix (det = 0)")]
     SingularHomography,
 
+    /// CUDA runtime error.
+    #[error("CUDA error: {0}")]
+    CudaError(String),
+
     /// All buffers in the pool are currently acquired.
     #[error("GPU image pool exhausted — all buffers in use")]
     PoolExhausted,

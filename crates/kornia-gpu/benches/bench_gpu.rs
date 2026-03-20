@@ -5,8 +5,8 @@
 //!   cargo bench -p kornia-gpu --bench bench_gpu
 //!
 //! Two timing modes per GPU operation:
-//!   gpu_compute  — kernel only (data already in VRAM, result stays in VRAM)
-//!   gpu_e2e      — upload + kernel + download (true wall-clock cost)
+//!   gpu_compute  - kernel only (data already in VRAM, result stays in VRAM)
+//!   gpu_e2e      - upload + kernel + download (true wall-clock cost)
 //!
 //! The compute time shows raw kernel speedup.
 //! The e2e time shows real-world speedup when data must cross the PCIe bus.
@@ -32,9 +32,7 @@ fn bev_homography() -> [f32; 9] {
     [1.2, 0.1, -100.0, -0.05, 1.1, -80.0, 0.0001, 0.0002, 1.0]
 }
 
-// ---------------------------------------------------------------------------
 // cast_and_scale
-// ---------------------------------------------------------------------------
 
 fn bench_cast_and_scale(c: &mut Criterion) {
     let gpu = GpuAllocator::new();
@@ -68,9 +66,7 @@ fn bench_cast_and_scale(c: &mut Criterion) {
     group.finish();
 }
 
-// ---------------------------------------------------------------------------
 // warp_perspective
-// ---------------------------------------------------------------------------
 
 fn bench_warp_perspective(c: &mut Criterion) {
     let gpu = GpuAllocator::new();
@@ -110,9 +106,7 @@ fn bench_warp_perspective(c: &mut Criterion) {
     group.finish();
 }
 
-// ---------------------------------------------------------------------------
 // gray_from_rgb
-// ---------------------------------------------------------------------------
 
 fn bench_gray_from_rgb(c: &mut Criterion) {
     let gpu = GpuAllocator::new();
@@ -149,9 +143,7 @@ fn bench_gray_from_rgb(c: &mut Criterion) {
     group.finish();
 }
 
-// ---------------------------------------------------------------------------
 // Full BEV pipeline
-// ---------------------------------------------------------------------------
 
 fn bench_bev_pipeline(c: &mut Criterion) {
     let gpu = GpuAllocator::new();
@@ -195,6 +187,77 @@ fn bench_bev_pipeline(c: &mut Criterion) {
     group.finish();
 }
 
+// CUDA benchmarks (--features cuda)
+
+#[cfg(feature = "cuda")]
+fn bench_warp_perspective_cuda(c: &mut Criterion) {
+    use kornia_gpu::cuda::allocator::CudaAllocator;
+    use kornia_gpu::cuda::image::CudaImageExt;
+    use kornia_gpu::cuda::kernels;
+
+    let cuda = CudaAllocator::new().expect("CUDA not available");
+    let m = bev_homography();
+    let mut group = c.benchmark_group("warp_perspective_cuda");
+    group.sample_size(50);
+
+    for &(h, w) in SIZES {
+        let label = format!("{}x{}", w, h);
+        let cpu_img = make_cpu_image(h, w);
+        let cuda_img = cpu_img.to_cuda(&cuda).unwrap();
+
+        // kernel only — data stays in VRAM
+        group.bench_with_input(BenchmarkId::new("cuda_compute", &label), &(), |b, _| {
+            b.iter(|| kernels::warp_perspective(&cuda_img, (h, w), &m).unwrap())
+        });
+
+        // e2e — upload + kernel + download
+        group.bench_with_input(BenchmarkId::new("cuda_e2e", &label), &(), |b, _| {
+            b.iter(|| {
+                let img = cpu_img.to_cuda(&cuda).unwrap();
+                let out = kernels::warp_perspective(&img, (h, w), &m).unwrap();
+                out.to_cpu().unwrap()
+            })
+        });
+    }
+    group.finish();
+}
+
+#[cfg(feature = "cuda")]
+fn bench_bev_pipeline_cuda(c: &mut Criterion) {
+    use kornia_gpu::cuda::allocator::CudaAllocator;
+    use kornia_gpu::cuda::image::CudaImageExt;
+    use kornia_gpu::cuda::kernels;
+
+    let cuda = CudaAllocator::new().expect("CUDA not available");
+    let m = bev_homography();
+    let mut group = c.benchmark_group("bev_pipeline_cuda");
+    group.sample_size(50);
+
+    for &(h, w) in SIZES {
+        let label = format!("{}x{}", w, h);
+        let cpu_img = make_cpu_image(h, w);
+
+        // Full BEV pipeline: upload → cast → warp → gray → download
+        group.bench_with_input(BenchmarkId::new("cuda_e2e", &label), &(), |b, _| {
+            b.iter(|| {
+                let img  = cpu_img.to_cuda(&cuda).unwrap();
+                let cast = kernels::cast_and_scale(&img, 1.0 / 255.0).unwrap();
+                let warp = kernels::warp_perspective(&cast, (h, w), &m).unwrap();
+                let gray = kernels::gray_from_rgb(&warp).unwrap();
+                gray.to_cpu().unwrap()
+            })
+        });
+    }
+    group.finish();
+}
+
+#[cfg(feature = "cuda")]
+criterion_group!(
+    cuda_benches,
+    bench_warp_perspective_cuda,
+    bench_bev_pipeline_cuda,
+);
+
 criterion_group!(
     benches,
     bench_cast_and_scale,
@@ -202,4 +265,9 @@ criterion_group!(
     bench_gray_from_rgb,
     bench_bev_pipeline,
 );
+
+#[cfg(feature = "cuda")]
+criterion_main!(benches, cuda_benches);
+
+#[cfg(not(feature = "cuda"))]
 criterion_main!(benches);

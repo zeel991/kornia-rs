@@ -1,24 +1,9 @@
 //! Zero-copy GPU pipeline for chaining image processing operations.
 //!
 //! The key insight: GPU transfer overhead is fixed (~0.4ms for 1080p),
-//! but each additional GPU kernel costs ~0.1–0.3ms. By chaining kernels
+//! but each additional GPU kernel costs ~0.1-0.3ms. By chaining kernels
 //! with data staying in VRAM between stages, we pay the transfer cost once
 //! regardless of how many operations are in the pipeline.
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use kornia_gpu::{GpuAllocator, pipeline::GpuPipeline};
-//! use kornia_image::{Image, ImageSize};
-//!
-//! let gpu = GpuAllocator::new();
-//! let result = GpuPipeline::new(&gpu)
-//!     .upload(&cpu_frame)          // CPU → GPU  (paid once)
-//!     .cast_and_scale(1.0 / 255.0) // on GPU
-//!     .warp_perspective((h, w), &homography) // on GPU
-//!     .gray_from_rgb()             // on GPU
-//!     .download()?;               // GPU → CPU  (paid once)
-//! ```
 
 use crate::allocator::GpuAllocator;
 use crate::error::GpuError;

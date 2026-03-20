@@ -1,10 +1,7 @@
-//! Minimal BEV node skeleton demonstrating the GPU pipeline architecture.
+//! Minimal BEV node skeleton demonstrating the GPU pipeline architecture
 //!
-//! Shows correct async/blocking separation for use in a Bubbaloop Zenoh node.
-//! The full integration uses bubbaloop-node-sdk (not yet a workspace dep).
-//!
-//! Run:
-//!   cargo run --release --example bev_node
+//! Shows correct async/blocking separation for use in a Bubbaloop Zenoh node
+//! The full integration uses bubbaloop-node-sdk (not yet a workspace dep)
 
 use std::sync::Arc;
 use kornia_gpu::{
@@ -41,7 +38,7 @@ impl BevConfig {
     }
 }
 
-/// GPU pipeline state — initialised once, reused every frame.
+/// GPU pipeline state, initialised once, reused every frame
 struct BevPipeline {
     gpu:       GpuAllocator,
     warp_pool: GpuImagePool<f32, 3>,
@@ -59,7 +56,7 @@ impl BevPipeline {
         Ok(Self { gpu, warp_pool, homography: cfg.homography, height: cfg.height, width: cfg.width })
     }
 
-    /// Process one frame. Must be called from a blocking thread (not the Tokio executor).
+    /// Process one frame. Must be called from a blocking thread (not the Tokio executor)
     ///
     /// Input: raw RGB f32 bytes (height × width × 3 × 4 bytes)
     fn process_frame(&self, raw: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
@@ -79,7 +76,7 @@ impl BevPipeline {
         let gpu_src = cpu_img.to_gpu(&self.gpu)?;
         let t1 = std::time::Instant::now();
 
-        // Acquire pre-allocated buffer — no GPU allocation here
+        // Acquire pre-allocated buffer, no GPU allocation here
         let warp_buf = self.warp_pool.acquire()?;
         kernels::warp_perspective_into(&gpu_src, &warp_buf, &self.homography)?;
         let t2 = std::time::Instant::now();
@@ -105,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("[bev_node] input={} output={} size={}×{}",
         cfg.input_topic, cfg.output_topic, cfg.width, cfg.height);
 
-    // GPU init on a std thread (not async) — GpuAllocator::new() may block
+    // GPU init on a std thread (not async), GpuAllocator::new() may block
     let pipeline = Arc::new(BevPipeline::new(&cfg)?);
 
     // Demonstrate the pipeline with a synthetic frame (all zeros)

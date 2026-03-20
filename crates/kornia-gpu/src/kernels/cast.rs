@@ -1,13 +1,13 @@
 //! GPU kernel: cast_and_scale
 //!
-//! Multiplies every pixel value by `scale`. One thread per element.
+//! Multiplies every pixel value by scale. One thread per element
 //!
-//! This is the simplest possible GPU kernel — it validates the full
+//! This is the simplest possible GPU kernel - it validates the full
 //! GpuAllocator → CubeCL → result stack and sets the pattern for more
-//! complex kernels (warp_perspective, gray_from_rgb, gaussian_blur).
+//! complex kernels (warp_perspective, gray_from_rgb, gaussian_blur)
 //!
-//! CPU equivalent: `Image::cast_and_scale` in kornia-image/src/image.rs
-//! (uses rayon par_iter; this uses one GPU thread per element).
+//! CPU equivalent: Image::cast_and_scale in kornia-image/src/image.rs
+//! (uses rayon par_iter; this uses one GPU thread per element)
 
 use cubecl::prelude::*;
 use cubecl::wgpu::WgpuRuntime;
@@ -15,9 +15,7 @@ use cubecl::wgpu::WgpuRuntime;
 use crate::error::GpuError;
 use crate::image::GpuImage;
 
-// ---------------------------------------------------------------------------
 // CubeCL kernel
-// ---------------------------------------------------------------------------
 
 /// Per-element multiply kernel. 2D dispatch: one unit per (row, col) pair.
 /// Using 2D avoids the wgpu CubeCount limit of 65535 per dimension,
@@ -47,33 +45,20 @@ fn cast_and_scale_kernel(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Public launch function
-// ---------------------------------------------------------------------------
 
-/// Multiply every pixel value by `scale`, writing results to a new `GpuImage`.
+/// Multiply every pixel value by scale, writing results to a new GpuImage.
 ///
-/// Mirrors `Image::cast_and_scale` but runs on the GPU.
+/// Mirrors Image::cast_and_scale but runs on the GPU.
 ///
 /// # Arguments
 ///
-/// * `src`   - Input GPU image.
-/// * `scale` - Scale factor (e.g. `1.0 / 255.0` to normalise u8→f32 range).
+/// * src   - Input GPU image.
+/// * scale - Scale factor (e.g. 1.0 / 255.0 to normalise u8→f32 range)
 ///
 /// # Returns
 ///
-/// A new `GpuImage<f32, C>` with the same dimensions as `src`.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use kornia_gpu::{GpuAllocator, image::ImageExt, kernels::cast_and_scale};
-///
-/// let gpu = GpuAllocator::new();
-/// let src = cpu_img.to_gpu(&gpu)?;
-/// let scaled = cast_and_scale(&src, 1.0 / 255.0)?;
-/// let result = scaled.to_cpu()?;
-/// ```
+/// A new GpuImage<f32, C> with the same dimensions as src
 pub fn cast_and_scale<const C: usize>(
     src: &GpuImage<f32, C>,
     scale: f32,
@@ -103,16 +88,9 @@ pub fn cast_and_scale<const C: usize>(
     Ok(dst)
 }
 
-/// Write cast_and_scale result into an existing GPU buffer (zero allocation).
+/// Write cast_and_scale result into an existing GPU buffer (zero allocation)
 ///
-/// Use with `GpuImagePool` for persistent VRAM reuse across frames:
-///
-/// ```rust,ignore
-/// let buf = pool.acquire()?;
-/// cast_and_scale_into(&src, &buf, 1.0 / 255.0)?;
-/// // buf now contains the scaled image — no new VRAM allocated
-/// pool.release(buf);
-/// ```
+/// Use with GpuImagePool for persistent VRAM reuse across frames
 pub fn cast_and_scale_into<const C: usize>(
     src: &GpuImage<f32, C>,
     dst: &GpuImage<f32, C>,

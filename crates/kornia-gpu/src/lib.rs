@@ -1,82 +1,17 @@
 //! GPU-accelerated image processing for kornia-rs.
-//!
-//! This crate provides GPU implementations of kornia-imgproc operations using
-//! [CubeCL](https://github.com/tracel-ai/cubecl) as the compute backend.
-//! CubeCL compiles the same Rust kernel code to Vulkan (wgpu), CUDA, ROCm,
-//! and Metal — so the same kernels run on any GPU without code changes.
-//!
-//! # Architecture
-//!
-//! ```text
-//! kornia-gpu
-//! ├── allocator   GpuAllocator (implements TensorAllocator) + GpuMemory<T>
-//! ├── image       GpuImage<T, C> + to_gpu() / to_cpu() transfer API
-//! ├── kernels
-//! │   ├── cast    cast_and_scale — GPU version of Image::cast_and_scale
-//! │   ├── warp    warp_perspective — GPU version of imgproc::warp_perspective
-//! │   └── color   gray_from_rgb — GPU version of imgproc::gray_from_rgb
-//! └── pipeline    GpuPipeline — zero-copy kernel chaining
-//! ```
-//!
-//! # Integration with kornia-imgproc
-//!
-//! The intended usage from kornia-imgproc (behind a `cubecl` feature flag):
-//!
-//! ```rust,ignore
-//! // In kornia-imgproc/src/warp/perspective.rs:
-//! pub fn warp_perspective<const C: usize, A1: ImageAllocator, A2: ImageAllocator>(
-//!     src: &Image<f32, C, A1>,
-//!     dst: &mut Image<f32, C, A2>,
-//!     m: &[f32; 9],
-//!     interpolation: InterpolationMode,
-//! ) -> Result<(), ImageError> {
-//!     // GPU dispatch: if src is backed by GpuAllocator, use GPU kernel
-//!     #[cfg(feature = "cubecl")]
-//!     if let (Some(gpu_src), Some(_gpu_dst)) = (
-//!         src.as_gpu_image(),
-//!         dst.as_gpu_image_mut(),
-//!     ) {
-//!         return kornia_gpu::kernels::warp_perspective(gpu_src, dst_size, m)
-//!             .map(|_| ())
-//!             .map_err(Into::into);
-//!     }
-//!     // CPU fallback (unchanged)
-//!     // ...
-//! }
-//! ```
-//!
-//! # Quick start
-//!
-//! ```rust,ignore
-//! use kornia_gpu::{GpuAllocator, pipeline::GpuPipeline};
-//! use kornia_image::{Image, ImageSize};
-//! use kornia_tensor::CpuAllocator;
-//!
-//! let cpu_img = Image::<f32, 3, _>::from_size_val(
-//!     ImageSize { width: 1920, height: 1080 },
-//!     0.5,
-//!     CpuAllocator,
-//! )?;
-//!
-//! let homography = [1.2, 0.1, -100.0, -0.05, 1.1, -80.0, 0.0001, 0.0002, 1.0];
-//!
-//! let gpu = GpuAllocator::new();
-//! let result = GpuPipeline::new(&gpu)
-//!     .upload(&cpu_img)?
-//!     .cast_and_scale(1.0 / 255.0)?
-//!     .warp_perspective((1080, 1920), &homography)?
-//!     .gray_from_rgb()?
-//!     .download()?;
-//! ```
 
 pub mod allocator;
+pub mod backend;
 pub mod error;
 pub mod image;
 pub mod kernels;
 pub mod pipeline;
 pub mod pool;
 
+pub mod cuda;
+
 pub use allocator::GpuAllocator;
+pub use backend::{AnyGpuImage, Backend};
 pub use error::GpuError;
 pub use image::{GpuImage, ImageExt};
 pub use pool::GpuImagePool;
@@ -101,9 +36,7 @@ mod tests {
         Image::new(ImageSize { height: h, width: w }, data, CpuAllocator).unwrap()
     }
 
-    // -----------------------------------------------------------------------
     // Transfer round-trip
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_transfer_roundtrip() {
@@ -115,9 +48,7 @@ mod tests {
         assert_eq!(src.size(), back.size());
     }
 
-    // -----------------------------------------------------------------------
     // cast_and_scale
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_cast_and_scale_exact() {
@@ -147,9 +78,7 @@ mod tests {
         assert!(result.as_slice().iter().all(|&v| v == 0.0));
     }
 
-    // -----------------------------------------------------------------------
     // gray_from_rgb
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_gray_from_rgb_black() {
@@ -190,9 +119,7 @@ mod tests {
         assert!((result.as_slice()[0] - 0.299).abs() < 1e-5);
     }
 
-    // -----------------------------------------------------------------------
     // warp_perspective
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_warp_perspective_identity_shape() {
@@ -247,9 +174,7 @@ mod tests {
         assert!(err.is_err());
     }
 
-    // -----------------------------------------------------------------------
     // GpuPipeline
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_pipeline_cast_warp() {
@@ -312,9 +237,7 @@ mod tests {
             );
         }
     }
-    // -----------------------------------------------------------------------
-    // GpuImagePool — persistent VRAM reuse
-    // -----------------------------------------------------------------------
+    // GpuImagePool - persistent VRAM reuse
 
     #[test]
     fn test_pool_acquire_release() {
@@ -385,6 +308,134 @@ mod tests {
             pool_warp.release(warp_buf); // return for next frame
         }
         assert_eq!(pool_warp.available_count(), 1);
+    }
+
+    // CUDA backend tests - only run if CUDA is available on this machine
+
+    fn cuda_available() -> bool {
+        crate::cuda::allocator::CudaAllocator::is_available()
+    }
+
+    fn cuda_alloc() -> crate::cuda::allocator::CudaAllocator {
+        crate::cuda::allocator::CudaAllocator::new().expect("CUDA not available")
+    }
+
+    #[test]
+    fn test_cuda_allocator_available() {
+        // Just checks that is_available() doesn't panic on any machine
+        let _ = cuda_available();
+    }
+
+    #[test]
+    fn test_cuda_transfer_roundtrip() {
+        if !cuda_available() { return; }
+        use crate::cuda::image::CudaImageExt;
+
+        let alloc = cuda_alloc();
+        let src = rgb_image(8, 8);
+        let cuda_img = src.to_cuda(&alloc).unwrap();
+        let result = cuda_img.to_cpu().unwrap();
+
+        assert_eq!(result.size(), src.size());
+        for (a, b) in result.as_slice().iter().zip(src.as_slice().iter()) {
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn test_cuda_cast_and_scale() {
+        if !cuda_available() { return; }
+        use crate::cuda::image::CudaImageExt;
+
+        let alloc = cuda_alloc();
+        let src = rgb_image(8, 8);
+        let cuda_src = src.to_cuda(&alloc).unwrap();
+        let result = crate::cuda::kernels::cast_and_scale(&cuda_src, 1.0 / 255.0)
+            .unwrap()
+            .to_cpu()
+            .unwrap();
+
+        let expected: Vec<f32> = src.as_slice().iter().map(|&v| v / 255.0).collect();
+        for (a, b) in result.as_slice().iter().zip(expected.iter()) {
+            assert!((a - b).abs() < 1e-6f32);
+        }
+    }
+
+    #[test]
+    fn test_cuda_warp_perspective_identity() {
+        if !cuda_available() { return; }
+        use crate::cuda::image::CudaImageExt;
+
+        let alloc = cuda_alloc();
+        let src = rgb_image(8, 8);
+        let cuda_src = src.to_cuda(&alloc).unwrap();
+        let identity = [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let result = crate::cuda::kernels::warp_perspective(&cuda_src, (8, 8), &identity)
+            .unwrap()
+            .to_cpu()
+            .unwrap();
+
+        assert_eq!(result.size(), src.size());
+    }
+
+    #[test]
+    fn test_cuda_gray_from_rgb() {
+        if !cuda_available() { return; }
+        use crate::cuda::image::CudaImageExt;
+        use kornia_image::{Image, ImageSize};
+        use kornia_tensor::CpuAllocator;
+
+        let alloc = cuda_alloc();
+        // White pixel: R=1, G=1, B=1 -> gray = 1.0
+        let white = Image::<f32, 3, CpuAllocator>::new(
+            ImageSize { height: 1, width: 1 },
+            vec![1.0f32, 1.0, 1.0],
+            CpuAllocator,
+        ).unwrap();
+        let cuda_src = white.to_cuda(&alloc).unwrap();
+        let result = crate::cuda::kernels::gray_from_rgb(&cuda_src)
+            .unwrap()
+            .to_cpu()
+            .unwrap();
+        assert!((result.as_slice()[0] - 1.0f32).abs() < 1e-5f32);
+    }
+
+    #[test]
+    fn test_cuda_warp_matches_wgpu() {
+        if !cuda_available() { return; }
+        use crate::cuda::image::CudaImageExt;
+
+        let gpu = gpu();
+        let alloc = cuda_alloc();
+        let src = rgb_image(32, 32);
+        let m = [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+
+        let wgpu_result = kernels::warp_perspective(&src.to_gpu(&gpu).unwrap(), (32, 32), &m)
+            .unwrap()
+            .to_cpu()
+            .unwrap();
+
+        let cuda_result = crate::cuda::kernels::warp_perspective(
+            &src.to_cuda(&alloc).unwrap(), (32, 32), &m
+        ).unwrap().to_cpu().unwrap();
+
+        // Both backends must produce identical results
+        for (a, b) in wgpu_result.as_slice().iter().zip(cuda_result.as_slice().iter()) {
+            assert!((a - b).abs() < 1e-4f32, "wgpu={} cuda={}", a, b);
+        }
+    }
+
+    #[test]
+    fn test_backend_auto_dispatch() {
+        let backend = crate::Backend::auto().unwrap();
+        // Just verify it initialises and can process an image
+        let src = rgb_image(8, 8);
+        let cpu_f32 = src.cast_and_scale::<f32>(1.0 / 255.0).unwrap();
+        let gpu_img = backend.upload(&cpu_f32).unwrap();
+        let warped = backend.warp_perspective(
+            &gpu_img, (8, 8), &[1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        ).unwrap();
+        let _result = backend.download(&warped).unwrap();
     }
 
 }

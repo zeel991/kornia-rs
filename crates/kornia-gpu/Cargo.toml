@@ -4,11 +4,12 @@ version = { workspace = true }
 authors = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
-description = "GPU-accelerated image processing kernels for kornia-rs (CubeCL backend)"
+description = "GPU-accelerated image processing kernels for kornia-rs (CubeCL wgpu + CUDA backends)"
 homepage = { workspace = true }
 repository = { workspace = true }
 license = { workspace = true }
 publish = false
+build = "build.rs"
 
 [dependencies]
 kornia-tensor = { workspace = true }
@@ -16,6 +17,13 @@ kornia-image = { workspace = true }
 cubecl = { workspace = true }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }
+
+# CUDA backend - optional, requires CUDA 12+ and nvidia-cuda-toolkit
+cudarc = { version = "0.19", features = ["cuda-12000", "dynamic-loading"], optional = true }
+
+[features]
+default = []
+cuda = ["dep:cudarc"]
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -33,3 +41,12 @@ path = "examples/bev_compare.rs"
 [[example]]
 name = "bev_node"
 path = "examples/bev_node.rs"
+
+[[example]]
+name = "bev_cuda"
+path = "examples/bev_cuda.rs"
+required-features = ["cuda"]
+
+[[example]]
+name = "bev_auto"
+path = "examples/bev_auto.rs"

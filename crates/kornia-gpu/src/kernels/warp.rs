@@ -1,31 +1,25 @@
 //! GPU kernel: warp_perspective
 //!
-//! Applies a perspective homography with bilinear interpolation.
-//! One GPU thread per output pixel.
-//!
-//! # CPU equivalent
-//!
-//! `kornia_imgproc::warp::warp_perspective` in `crates/kornia-imgproc/src/warp/perspective.rs`.
-//! The CPU path uses `parallel::par_iter_rows_spatial_mapping` (rayon) + `interpolate_pixel`.
+//! # CPU equivalent : kornia_imgproc::warp::warp_perspective
 //!
 //! # GPU improvements over CPU path
 //!
-//! The CPU path calls `get_iter_offset_unchecked` which computes `idx * stride` for
+//! The CPU path calls get_iter_offset_unchecked which computes idx * stride for
 //! all 3 tensor dimensions per read:
 //!   - 4 reads × 3 channels × 3 dims = 36 mul-adds for address arithmetic alone per pixel
 //!   - 3 per-channel boundary branches
 //!   - ~H rayon work units (one per row)
 //!
-//! This kernel uses flat indexing `(row * W + col) * C + c`:
+//! This kernel uses flat indexing (row * W + col) * C + c:
 //!   - 1 mul-add per read
 //!   - 1 bounds check for all channels
 //!   - H × W independent GPU threads
 //!
 //! # Homography convention
 //!
-//! Matches kornia-imgproc exactly: `m` is the forward homography (src → dst).
-//! We invert it once on CPU before uploading — same as `inverse_perspective_matrix`
-//! in `perspective.rs`.
+//! Matches kornia-imgproc exactly: m is the forward homography (src → dst).
+//! We invert it once on CPU before uploading — same as inverse_perspective_matrix
+//! in perspective.rs.
 
 use cubecl::prelude::*;
 use cubecl::wgpu::WgpuRuntime;
@@ -33,9 +27,7 @@ use cubecl::wgpu::WgpuRuntime;
 use crate::error::GpuError;
 use crate::image::GpuImage;
 
-// ---------------------------------------------------------------------------
 // Homography helpers (CPU-side, called once before kernel launch)
-// ---------------------------------------------------------------------------
 
 fn determinant3x3(m: &[f32; 9]) -> f32 {
     m[0] * (m[4] * m[8] - m[5] * m[7])
@@ -57,7 +49,7 @@ fn adjugate3x3(m: &[f32; 9]) -> [f32; 9] {
     ]
 }
 
-/// Invert a 3×3 perspective matrix. Matches `inverse_perspective_matrix` in perspective.rs.
+/// Invert a 3×3 perspective matrix. Matches inverse_perspective_matrix in perspective.rs.
 fn invert_perspective(m: &[f32; 9]) -> Result<[f32; 9], GpuError> {
     let det = determinant3x3(m);
     if det == 0.0 {
@@ -72,9 +64,7 @@ fn invert_perspective(m: &[f32; 9]) -> Result<[f32; 9], GpuError> {
     Ok(inv)
 }
 
-// ---------------------------------------------------------------------------
 // CubeCL kernel
-// ---------------------------------------------------------------------------
 
 /// Perspective warp kernel. One thread per output pixel (u, v).
 ///
@@ -83,7 +73,7 @@ fn invert_perspective(m: &[f32; 9]) -> Result<[f32; 9], GpuError> {
 ///   2. Bilinear-interpolates the source image at that position
 ///   3. Writes the result to dst
 ///
-/// Uses flat indexing `(row * W + col) * C + c` — 1 mul-add per read.
+/// Uses flat indexing (row * W + col) * C + c : 1 mul-add per read.
 /// Bounds check is done once for all channels (not per-channel like the CPU path).
 #[cube(launch)]
 fn warp_perspective_kernel(
@@ -155,36 +145,21 @@ fn warp_perspective_kernel(
         c += 1u32;
     }
 }
-
-// ---------------------------------------------------------------------------
-// Public launch function
-// ---------------------------------------------------------------------------
-
 /// Apply a perspective transformation to a GPU image with bilinear interpolation.
 ///
-/// Mirrors `kornia_imgproc::warp::warp_perspective` but runs entirely on the GPU.
-/// `m` is the forward homography (src → dst), same convention as the CPU function.
+/// Mirrors kornia_imgproc::warp::warp_perspective but runs entirely on the GPU.
+/// m is the forward homography (src → dst), same convention as the CPU function.
 ///
 /// # Arguments
 ///
-/// * `src`      - Input GPU image.
-/// * `dst_size` - Output dimensions `(height, width)`.
-/// * `m`        - 3×3 perspective matrix src → dst (row-major, 9 elements).
+/// * src      - Input GPU image.
+/// * dst_size - Output dimensions (height, width).
+/// * m        - 3×3 perspective matrix src → dst (row-major, 9 elements).
 ///
 /// # Returns
 ///
-/// A new `GpuImage<f32, C>` with shape `[dst_height, dst_width, C]`.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use kornia_gpu::{GpuAllocator, image::ImageExt, kernels::warp_perspective};
-///
-/// let gpu = GpuAllocator::new();
-/// let src = cpu_img.to_gpu(&gpu)?;
-/// let bev = warp_perspective(&src, (dst_h, dst_w), &homography)?;
-/// let result = bev.to_cpu()?;
-/// ```
+/// A new GpuImage<f32, C> with shape [dst_height, dst_width, C].
+
 pub fn warp_perspective<const C: usize>(
     src: &GpuImage<f32, C>,
     dst_size: (usize, usize), // (height, width)
@@ -234,7 +209,7 @@ pub fn warp_perspective<const C: usize>(
 
 /// Write warp_perspective result into an existing GPU buffer (zero allocation).
 ///
-/// Use with `GpuImagePool` for persistent VRAM reuse across frames.
+/// Use with GpuImagePool for persistent VRAM reuse across frames.
 pub fn warp_perspective_into<const C: usize>(
     src: &GpuImage<f32, C>,
     dst: &GpuImage<f32, C>,
